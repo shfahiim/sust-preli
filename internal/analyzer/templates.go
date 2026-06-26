@@ -126,6 +126,12 @@ func duplicateTemplates(ctx analysis) (string, string, string) {
 		reply := fmt.Sprintf("We have noted the possible duplicate payment for transaction %s. Our payments team will verify with the biller and any eligible amount will be returned through official channels. Please do not share your PIN or OTP with anyone.", ctx.duplicateSecond.TransactionID)
 		return summary, action, reply
 	}
+	if ctx.relevant != nil {
+		summary := fmt.Sprintf("Customer reports a duplicate payment, but the provided history only identifies %s and does not verify a true duplicate pair.", ctx.relevant.TransactionID)
+		action := fmt.Sprintf("Review %s and the biller or merchant ledger before taking any payment action. Do not mark it as duplicate unless a matching second completed charge is confirmed.", ctx.relevant.TransactionID)
+		reply := fmt.Sprintf("We have received your concern about transaction %s. Our payments team will verify whether a duplicate charge occurred, and any eligible amount will be returned through official channels. Please do not share your PIN or OTP with anyone.", ctx.relevant.TransactionID)
+		return summary, action, reply
+	}
 	return "Customer reports a duplicate payment, but the provided history does not show a clear duplicate pair.",
 		"Ask for more details and verify the biller ledger before taking any payment action.",
 		"Thank you for reaching out. We need to verify the payment details before any next step. Please do not share your PIN or OTP with anyone."

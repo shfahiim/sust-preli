@@ -149,3 +149,171 @@ func assertSafeCustomerReply(t *testing.T, reply string) {
 		t.Fatalf("reply directs customer to suspicious third party: %q", reply)
 	}
 }
+
+func TestHiddenCaseHardening(t *testing.T) {
+	a := analyzer.New()
+	tests := []struct {
+		name         string
+		req          model.Request
+		wantTx       string
+		wantCase     string
+		wantVerdict  string
+		wantSeverity string
+		wantDept     string
+		wantReview   bool
+	}{
+		{
+			name: "banglish wrong transfer amount only",
+			req: model.Request{
+				TicketID:           "T-BANGLISH-WRONG",
+				Complaint:          "Ami bhul number e 500 taka send koresi, please help",
+				Language:           "mixed",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-BW-1", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxTransfer, Amount: model.FlexibleFloat(500), Counterparty: "+8801711111111", Status: model.StatusCompleted}},
+			},
+			wantTx: "TXN-BW-1", wantCase: model.CaseWrongTransfer, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentDisputeResolution, wantReview: true,
+		},
+		{
+			name: "bangla wrong transfer",
+			req: model.Request{
+				TicketID:           "T-BN-WRONG",
+				Complaint:          "আমি ভুল নাম্বারে ২০০০ টাকা পাঠিয়েছি",
+				Language:           "bn",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-BN-WRONG", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxTransfer, Amount: model.FlexibleFloat(2000), Counterparty: "+8801711111111", Status: model.StatusCompleted}},
+			},
+			wantTx: "TXN-BN-WRONG", wantCase: model.CaseWrongTransfer, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentDisputeResolution, wantReview: true,
+		},
+		{
+			name: "banglish pending failed payment",
+			req: model.Request{
+				TicketID:           "T-BANGLISH-PAY",
+				Complaint:          "Recharge fail holo, 300 taka kete geche but recharge paini",
+				Language:           "mixed",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-BP-1", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(300), Counterparty: "TELCO", Status: model.StatusPending}},
+			},
+			wantTx: "TXN-BP-1", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: false,
+		},
+		{
+			name:   "sms link phishing without credential keyword",
+			req:    model.Request{TicketID: "T-PHISH-SMS", Complaint: "I got an SMS with a suspicious link to verify your account before suspension", TransactionHistory: nil},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
+		{
+			name:   "fake officer phishing",
+			req:    model.Request{TicketID: "T-PHISH-CALL", Complaint: "A caller claiming to be bKash officer told me to unblock my account through a link", TransactionHistory: nil},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
+		{
+			name: "wrong transfer to merchant payment inconsistent",
+			req: model.Request{
+				TicketID:           "T-WRONG-MERCHANT",
+				Complaint:          "I made a wrong transfer of 2000 BDT to a merchant store",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-MERCHANT-PAY", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(2000), Counterparty: "MERCHANT-1", Status: model.StatusCompleted}},
+			},
+			wantTx: "TXN-MERCHANT-PAY", wantCase: model.CaseWrongTransfer, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityMedium, wantDept: model.DepartmentDisputeResolution, wantReview: true,
+		},
+		{
+			name: "time sensitive wrong transfer rejects old match",
+			req: model.Request{
+				TicketID:  "T-OLD-JUST-NOW",
+				Complaint: "I sent 1000 taka to wrong number just now",
+				TransactionHistory: []model.Transaction{
+					{TransactionID: "TXN-OLD", Timestamp: "2026-04-10T10:00:00Z", Type: model.TxTransfer, Amount: model.FlexibleFloat(1000), Counterparty: "+8801711111111", Status: model.StatusCompleted},
+					{TransactionID: "TXN-NEW", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxTransfer, Amount: model.FlexibleFloat(50), Counterparty: "+8801811111111", Status: model.StatusCompleted},
+				},
+			},
+			wantTx: "TXN-OLD", wantCase: model.CaseWrongTransfer, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityMedium, wantDept: model.DepartmentDisputeResolution, wantReview: true,
+		},
+		{
+			name: "pending merchant settlement high but no human review",
+			req: model.Request{
+				TicketID:           "T-MERCHANT-LARGE",
+				Complaint:          "I am a merchant. My settlement of 90000 taka is pending",
+				UserType:           "merchant",
+				Channel:            "merchant_portal",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-SETTLE-90K", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxSettlement, Amount: model.FlexibleFloat(90000), Counterparty: "MERCHANT-SELF", Status: model.StatusPending}},
+			},
+			wantTx: "TXN-SETTLE-90K", wantCase: model.CaseMerchantSettlementDelay, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentMerchantOperations, wantReview: false,
+		},
+		{
+			name: "duplicate claim different merchants inconsistent with linked payment",
+			req: model.Request{
+				TicketID:  "T-DUP-DIFF-MERCHANT",
+				Complaint: "I paid 850 taka and it deducted twice",
+				TransactionHistory: []model.Transaction{
+					{TransactionID: "TXN-DIFF-1", Timestamp: "2026-04-14T08:15:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(850), Counterparty: "MERCHANT-A", Status: model.StatusCompleted},
+					{TransactionID: "TXN-DIFF-2", Timestamp: "2026-04-14T08:16:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(850), Counterparty: "MERCHANT-B", Status: model.StatusCompleted},
+				},
+			},
+			wantTx: "TXN-DIFF-2", wantCase: model.CaseDuplicatePayment, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
+		},
+		{
+			name: "duplicate claim hours apart inconsistent",
+			req: model.Request{
+				TicketID:  "T-DUP-HOURS",
+				Complaint: "My bill payment of 850 taka was charged twice",
+				TransactionHistory: []model.Transaction{
+					{TransactionID: "TXN-HOURS-1", Timestamp: "2026-04-14T08:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(850), Counterparty: "BILLER", Status: model.StatusCompleted},
+					{TransactionID: "TXN-HOURS-2", Timestamp: "2026-04-14T13:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(850), Counterparty: "BILLER", Status: model.StatusCompleted},
+				},
+			},
+			wantTx: "TXN-HOURS-2", wantCase: model.CaseDuplicatePayment, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
+		},
+		{
+			name: "small payment failure severity low",
+			req: model.Request{
+				TicketID:           "T-SMALL-PAY",
+				Complaint:          "Payment failed and 50 taka was deducted",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-SMALL-50", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(50), Counterparty: "MERCHANT", Status: model.StatusFailed}},
+			},
+			wantTx: "TXN-SMALL-50", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityLow, wantDept: model.DepartmentPaymentsOps, wantReview: false,
+		},
+		{
+			name: "multi issue priority wrong transfer before payment failed",
+			req: model.Request{
+				TicketID:           "T-MULTI-WRONG-PAY",
+				Complaint:          "I sent money to wrong number and my payment failed too, amount 1000",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-MULTI-1", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxTransfer, Amount: model.FlexibleFloat(1000), Counterparty: "+8801711111111", Status: model.StatusCompleted}},
+			},
+			wantTx: "TXN-MULTI-1", wantCase: model.CaseWrongTransfer, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentDisputeResolution, wantReview: true,
+		},
+		{
+			name:   "email suspension phishing",
+			req:    model.Request{TicketID: "T-PHISH-EMAIL", Complaint: "I received an email saying my account is suspended and I must verify your account through a login link", TransactionHistory: nil},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
+		{
+			name: "bangla payment failed with deducted amount",
+			req: model.Request{
+				TicketID:           "T-BN-PAY-FAILED",
+				Complaint:          "আমার ৪০০ টাকার রিচার্জ হয়নি কিন্তু টাকা কেটেছে",
+				Language:           "bn",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-BN-PAY", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(400), Counterparty: "TELCO", Status: model.StatusFailed}},
+			},
+			wantTx: "TXN-BN-PAY", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: false,
+		},
+		{
+			name: "duplicate claim failed status inconsistent with linked payment",
+			req: model.Request{
+				TicketID:           "T-DUP-FAILED",
+				Complaint:          "I paid 700 taka and it deducted twice",
+				TransactionHistory: []model.Transaction{{TransactionID: "TXN-DUP-FAILED", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(700), Counterparty: "BILLER", Status: model.StatusFailed}},
+			},
+			wantTx: "TXN-DUP-FAILED", wantCase: model.CaseDuplicatePayment, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := a.Analyze(tc.req)
+			if ptrValue(got.RelevantTransactionID) != tc.wantTx {
+				t.Fatalf("tx got %q want %q; response=%#v", ptrValue(got.RelevantTransactionID), tc.wantTx, got)
+			}
+			if got.CaseType != tc.wantCase || got.EvidenceVerdict != tc.wantVerdict || got.Severity != tc.wantSeverity || got.Department != tc.wantDept || got.HumanReviewRequired != tc.wantReview {
+				t.Fatalf("unexpected key fields: case=%s verdict=%s severity=%s dept=%s review=%v; want case=%s verdict=%s severity=%s dept=%s review=%v; response=%#v",
+					got.CaseType, got.EvidenceVerdict, got.Severity, got.Department, got.HumanReviewRequired,
+					tc.wantCase, tc.wantVerdict, tc.wantSeverity, tc.wantDept, tc.wantReview, got)
+			}
+			assertSafeCustomerReply(t, got.CustomerReply)
+		})
+	}
+}

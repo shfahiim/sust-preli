@@ -52,7 +52,7 @@ func selectRelevant(caseType, norm string, amounts []float64, history []model.Tr
 	if caseType == model.CaseWrongTransfer && ambiguousTransfer(scores, amounts) {
 		return nil, true, nil, nil
 	}
-	if len(scores) > 1 && scores[1].score >= scores[0].score-5 && scores[0].score >= 65 && !hasCounterpartyHint(norm, scores[0].tx) {
+	if caseType == model.CaseWrongTransfer && len(scores) > 1 && scores[1].score >= scores[0].score-5 && scores[0].score >= 65 && !hasCounterpartyHint(norm, scores[0].tx) {
 		return nil, true, nil, nil
 	}
 
@@ -282,9 +282,12 @@ func evidenceVerdict(ctx analysis) string {
 		if ctx.duplicateSecond != nil {
 			return model.EvidenceConsistent
 		}
-		return model.EvidenceInsufficientData
+		return model.EvidenceInconsistent
 	case model.CaseWrongTransfer:
-		if ctx.established {
+		if ctx.relevant.Type != model.TxTransfer {
+			return model.EvidenceInconsistent
+		}
+		if ctx.established || timeSensitiveTransferContradiction(ctx) {
 			return model.EvidenceInconsistent
 		}
 		if ctx.relevant.Status == model.StatusCompleted || ctx.relevant.Status == model.StatusPending {
@@ -317,4 +320,43 @@ func evidenceVerdict(ctx analysis) string {
 	default:
 		return model.EvidenceInsufficientData
 	}
+}
+
+func timeSensitiveTransferContradiction(ctx analysis) bool {
+	if ctx.relevant == nil || !hasCurrentTimeSignal(ctx.norm) {
+		return false
+	}
+	matchedAt, ok := parseTime(ctx.relevant.Timestamp)
+	if !ok {
+		return false
+	}
+	latest, ok := latestTransactionTime(ctx.req.TransactionHistory)
+	if !ok || !latest.After(matchedAt) {
+		return false
+	}
+
+	age := latest.Sub(matchedAt)
+	if containsAny(ctx.norm, "just now", "right now", "a moment ago", "few minutes", "few mins", "ekhon", "এখন", "এইমাত্র") {
+		return age > 3*time.Hour
+	}
+	if containsAny(ctx.norm, "today", "this morning", "this afternoon", "this evening", "tonight", "aj", "আজ", "সকালে", "বিকেলে", "রাতে") {
+		return age > 24*time.Hour
+	}
+	return false
+}
+
+func latestTransactionTime(history []model.Transaction) (time.Time, bool) {
+	var latest time.Time
+	ok := false
+	for _, tx := range history {
+		t, parsed := parseTime(tx.Timestamp)
+		if !parsed {
+			continue
+		}
+		if !ok || t.After(latest) {
+			latest = t
+			ok = true
+		}
+	}
+	return latest, ok
 }

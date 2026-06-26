@@ -82,40 +82,75 @@ func classify(req model.Request, norm string) string {
 	userType := strings.ToLower(req.UserType)
 	channel := strings.ToLower(req.Channel)
 
-	if containsAny(norm, "otp", "o.t.p", "pin", "password", "passcode", "verification code", "security code", "ওটিপি", "পিন", "পাসওয়ার্ড") &&
-		containsAny(norm, "ask", "asked", "asking", "ask for", "call", "called", "sms", "link", "blocked", "verify", "share", "send", "কলে", "কল", "চেয়েছে", "শেয়ার") {
+	if isPhishingComplaint(norm) {
 		return model.CasePhishingSocialEngineering
 	}
-	if containsAny(norm, "phishing", "scam", "fraud", "suspicious link", "fake bkash", "pretending", "social engineering") {
-		return model.CasePhishingSocialEngineering
+	if isWrongTransferComplaint(norm) {
+		return model.CaseWrongTransfer
 	}
-	if containsAny(norm, "twice", "two times", "double charged", "duplicate", "deducted twice", "charged twice", "paid once", "দুইবার", "ডাবল") {
+	if isDuplicatePaymentComplaint(norm) {
 		return model.CaseDuplicatePayment
 	}
-	if userType == "merchant" || channel == "merchant_portal" || containsAny(norm, "settlement", "settled", "sales", "merchant settlement") {
-		if containsAny(norm, "settlement", "settled", "sales", "merchant") {
-			return model.CaseMerchantSettlementDelay
-		}
+	if isAgentCashInComplaint(norm) {
+		return model.CaseAgentCashInIssue
 	}
-	if containsAny(norm, "cash in", "cash-in", "cashin", "agent", "deposit", "balance not added", "not reflected", "ক্যাশ ইন", "এজেন্ট", "ব্যালেন্স", "টাকা আসেনি") {
-		if containsAny(norm, "cash", "agent", "deposit", "ক্যাশ", "এজেন্ট") {
-			return model.CaseAgentCashInIssue
-		}
+	if isMerchantSettlementComplaint(req, norm, userType, channel) {
+		return model.CaseMerchantSettlementDelay
 	}
-	if containsAny(norm, "failed", "failure", "unsuccessful", "did not go through", "deducted", "balance was deducted", "payment hoy nai", "পেমেন্ট হয়নি", "recharge") &&
-		containsAny(norm, "pay", "payment", "recharge", "merchant", "biller", "deducted", "পেমেন্ট") {
+	if isPaymentFailedComplaint(norm) {
 		return model.CasePaymentFailed
 	}
-	if containsAny(norm, "wrong number", "wrong person", "wrong recipient", "typed it wrong", "mistake", "wrongly sent", "sent to wrong", "ভুল নাম্বার", "ভুল নম্বর") {
-		return model.CaseWrongTransfer
-	}
-	if containsAny(norm, "sent", "transfer", "pathailam", "পাঠিয়েছি", "পাঠাইছি") && containsAny(norm, "didn't get", "did not get", "not received", "didn't receive", "brother", "wrong") {
-		return model.CaseWrongTransfer
-	}
-	if containsAny(norm, "refund", "return my money", "money back", "changed my mind", "don't want it", "dont want it", "ফেরত") {
+	if isRefundComplaint(norm) {
 		return model.CaseRefundRequest
 	}
 	return model.CaseOther
+}
+
+func isPhishingComplaint(norm string) bool {
+	credential := containsAny(norm, "otp", "o.t.p", "pin", "password", "passcode", "verification code", "security code", "ওটিপি", "ও টি পি", "পিন", "পাসওয়ার্ড")
+	action := containsAny(norm, "ask", "asked", "asking", "ask for", "call", "called", "caller", "sms", "message", "email", "link", "blocked", "suspend", "suspended", "verify", "share", "send", "unblock", "কলে", "কল", "লিংক", "মেসেজ", "চেয়েছে", "শেয়ার")
+	if credential && action {
+		return true
+	}
+
+	return containsAny(norm,
+		"phishing", "scam", "fraud", "suspicious link", "suspicious sms", "fake bkash", "fake support", "pretending", "claiming to be", "claims to be", "said they are from", "bkash officer", "support agent", "official support", "verify your account", "account verify", "account verification", "unblock your account", "account will be blocked", "account blocked", "account suspended", "suspension threat", "click this link", "login link", "reset link", "social engineering",
+		"প্রতার", "স্ক্যাম", "ভুয়া", "লিংক", "ওটিপি", "পিন", "পাসওয়ার্ড",
+	)
+}
+
+func isWrongTransferComplaint(norm string) bool {
+	if containsAny(norm,
+		"wrong number", "wrong person", "wrong recipient", "wrong account", "wrong transfer", "typed it wrong", "mistake", "wrongly sent", "sent to wrong", "wrong merchant", "merchant store",
+		"bhul", "vul", "bhool", "vool", "bhul number", "bhul number e", "pathailam", "pathaisi", "pathaise", "pathai", "pathalam", "pathaichi", "taka send koresi", "send koresi",
+		"ভুল নাম্বার", "ভুল নাম্বারে", "ভুল নম্বর", "ভুল নম্বরে", "ভুল অ্যাকাউন্ট", "ভুল করে", "পাঠিয়েছি", "পাঠাইছি", "পাঠালাম",
+	) {
+		return true
+	}
+	return containsAny(norm, "sent", "send", "transfer", "pathailam", "pathaisi", "pathai", "পাঠিয়েছি", "পাঠাইছি") &&
+		containsAny(norm, "didn't get", "did not get", "not received", "didn't receive", "brother", "wrong", "bhul", "vul", "পায়নি", "পায়নি")
+}
+
+func isDuplicatePaymentComplaint(norm string) bool {
+	return containsAny(norm, "twice", "two times", "double charged", "duplicate", "deducted twice", "charged twice", "paid once", "duibar", "dui bar", "দুইবার", "ডাবল")
+}
+
+func isAgentCashInComplaint(norm string) bool {
+	return containsAny(norm, "cash in", "cash-in", "cashin", "cash-in", "agent", "deposit", "balance not added", "not reflected", "agent cash", "ক্যাশ ইন", "ক্যাশইন", "এজেন্ট", "ব্যালেন্স", "টাকা আসেনি") &&
+		containsAny(norm, "cash", "cashin", "agent", "deposit", "ক্যাশ", "এজেন্ট")
+}
+
+func isMerchantSettlementComplaint(req model.Request, norm, userType, channel string) bool {
+	return userType == "merchant" || channel == "merchant_portal" || containsAny(norm, "settlement", "settled", "sales", "merchant settlement", "batch status", "merchant portal")
+}
+
+func isPaymentFailedComplaint(norm string) bool {
+	return containsAny(norm, "failed", "fail holo", "failure", "unsuccessful", "did not go through", "not completed", "pending", "stuck", "processing", "deducted", "balance was deducted", "taka kete", "kete geche", "kete niche", "payment hoy nai", "payment hoyni", "recharge", "হয়নি", "হয়নি", "কেটেছে", "কেটে", "পেমেন্ট হয়নি", "রিচার্জ") &&
+		containsAny(norm, "pay", "payment", "recharge", "merchant", "biller", "deducted", "pending", "পেমেন্ট", "রিচার্জ")
+}
+
+func isRefundComplaint(norm string) bool {
+	return containsAny(norm, "refund", "return my money", "money back", "changed my mind", "don't want it", "dont want it", "ফেরত")
 }
 
 func routeDepartment(ctx analysis) string {
@@ -144,8 +179,8 @@ func severity(ctx analysis) string {
 	if ctx.caseType == model.CasePhishingSocialEngineering {
 		return model.SeverityCritical
 	}
-	if veryHighValue(ctx.relevant) {
-		return model.SeverityCritical
+	if smallValue(ctx.relevant) {
+		return model.SeverityLow
 	}
 
 	switch ctx.caseType {
@@ -154,11 +189,17 @@ func severity(ctx analysis) string {
 	case model.CaseAgentCashInIssue:
 		return model.SeverityHigh
 	case model.CasePaymentFailed:
-		if highValue(ctx.relevant) || amountAtLeast(ctx.amounts, 1000) || containsAny(ctx.norm, "deducted", "balance") {
+		if veryHighValue(ctx.relevant) {
+			return model.SeverityCritical
+		}
+		if highValue(ctx.relevant) || amountAtLeast(ctx.amounts, 1000) || containsAny(ctx.norm, "deducted", "balance", "taka kete", "কেটেছে") {
 			return model.SeverityHigh
 		}
 		return model.SeverityMedium
 	case model.CaseWrongTransfer:
+		if veryHighValue(ctx.relevant) {
+			return model.SeverityCritical
+		}
 		if ctx.ambiguous || ctx.relevant == nil {
 			return model.SeverityMedium
 		}
@@ -167,6 +208,9 @@ func severity(ctx analysis) string {
 		}
 		return model.SeverityHigh
 	case model.CaseMerchantSettlementDelay:
+		if veryHighValue(ctx.relevant) {
+			return model.SeverityHigh
+		}
 		return model.SeverityMedium
 	case model.CaseRefundRequest:
 		if highValue(ctx.relevant) {
@@ -179,19 +223,25 @@ func severity(ctx analysis) string {
 }
 
 func humanReviewRequired(ctx analysis) bool {
-	if ctx.caseType == model.CasePhishingSocialEngineering || ctx.severity == model.SeverityCritical {
+	if ctx.caseType == model.CasePhishingSocialEngineering {
 		return true
 	}
-	if ctx.caseType == model.CaseDuplicatePayment || ctx.caseType == model.CaseAgentCashInIssue {
+	if ctx.caseType == model.CaseMerchantSettlementDelay {
+		return false
+	}
+	if ctx.severity == model.SeverityCritical {
+		return true
+	}
+	if ctx.caseType == model.CaseDuplicatePayment {
+		return ctx.verdict == model.EvidenceConsistent || ctx.verdict == model.EvidenceInconsistent
+	}
+	if ctx.caseType == model.CaseAgentCashInIssue {
 		return true
 	}
 	if ctx.caseType == model.CaseWrongTransfer && ctx.relevant != nil {
 		return true
 	}
 	if ctx.verdict == model.EvidenceInconsistent && ctx.relevant != nil {
-		return true
-	}
-	if veryHighValue(ctx.relevant) {
 		return true
 	}
 	return false
@@ -229,6 +279,9 @@ func reasonCodes(ctx analysis) []string {
 	case model.CasePhishingSocialEngineering:
 		return []string{"phishing", "credential_protection", "critical_escalation"}
 	case model.CaseDuplicatePayment:
+		if ctx.verdict == model.EvidenceInconsistent {
+			return []string{"duplicate_claim", "duplicate_not_verified", "evidence_inconsistent"}
+		}
 		return []string{"duplicate_payment", "biller_verification_required"}
 	case model.CaseMerchantSettlementDelay:
 		codes := []string{"merchant_settlement", "delay"}
@@ -251,12 +304,22 @@ func reasonCodes(ctx analysis) []string {
 			return []string{"ambiguous_match", "needs_clarification"}
 		}
 		if ctx.verdict == model.EvidenceInconsistent {
+			if ctx.relevant.Type != model.TxTransfer {
+				return []string{"wrong_transfer_claim", "non_transfer_transaction", "evidence_inconsistent"}
+			}
+			if timeSensitiveTransferContradiction(ctx) {
+				return []string{"wrong_transfer_claim", "time_mismatch", "evidence_inconsistent"}
+			}
 			return []string{"wrong_transfer_claim", "established_recipient_pattern", "evidence_inconsistent"}
 		}
 		return []string{"wrong_transfer", "transaction_match", "dispute_initiated"}
 	default:
 		return []string{"vague_complaint", "needs_clarification"}
 	}
+}
+
+func smallValue(tx *model.Transaction) bool {
+	return tx != nil && tx.Amount.Float64() > 0 && tx.Amount.Float64() < 100
 }
 
 func highValue(tx *model.Transaction) bool {
