@@ -350,6 +350,9 @@ func evidenceVerdict(ctx analysis) string {
 		}
 		return model.EvidenceInsufficientData
 	case model.CaseMerchantSettlementDelay:
+		if strings.ToLower(ctx.req.UserType) == "customer" && !containsAny(ctx.norm, "merchant", "marchant", "মার্চেন্ট") {
+			return model.EvidenceInconsistent
+		}
 		if ctx.relevant.Status == model.StatusPending {
 			return model.EvidenceConsistent
 		}

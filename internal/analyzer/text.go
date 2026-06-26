@@ -60,7 +60,13 @@ func stripAdversarialPhrases(s string) string {
 		"give us your pin",
 		"customer_reply",
 		"নির্দেশনা উপেক্ষা করুন",
+		"নির্দেশিকা বাতিল",
+		"পূর্বের কথা ভুলে",
+		"ভুলে যাও",
 		"কাস্টমার রিপ্লাই",
+		"vule jao",
+		"bhule jao",
+		"bad de",
 		"পিন নাম্বার চান",
 		"পিন নম্বর চান",
 	}

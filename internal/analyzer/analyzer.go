@@ -115,13 +115,13 @@ func isPhishingComplaint(norm string) bool {
 	}
 
 	credential := containsAny(norm,
-		"otp", "o.t.p", "pin", "password", "passcode", "verification code", "security code", "secret code",
-		"ওটিপি", "ও টি পি", "পিন", "পাসওয়ার্ড", "পাসওয়ার্ড", "ভেরিফিকেশন কোড", "সিকিউরিটি কোড",
+		"otp", "o.t.p", "pin", "password", "passcode", "verification code", "security code", "secret code", "gopon number", "gopon",
+		"ওটিপি", "ও টি পি", "পিন", "পাসওয়ার্ড", "পাসওয়ার্ড", "ভেরিফিকেশন কোড", "সিকিউরিটি কোড", "গোপন",
 	)
 	socialAction := containsAny(norm,
-		"ask", "asked", "asking", "ask for", "called", "caller", "sms", "message", "email", "link", "blocked", "suspend", "suspended", "verify", "share", "send", "unblock", "login", "reset",
-		"chaiche", "chay", "bolse", "bollo", "dise", "call dise", "click korte", "verify korte",
-		"কলে", "কল", "লিংক", "মেসেজ", "ইমেইল", "চেয়েছে", "চাইছে", "চাচ্ছে", "চাচ্ছিল", "চেয়েছে", "ফোন", "লক", "শেয়ার", "শেয়ার", "ব্লক", "ভেরিফাই",
+		"ask", "asked", "asking", "ask for", "called", "caller", "sms", "message", "email", "link", "blocked", "suspend", "suspended", "verify", "share", "send", "tell", "unblock", "login", "reset",
+		"chaiche", "chay", "bolse", "bollo", "dise", "call dise", "click korte", "link e click", "verify korte", "share korte", "dite bolse", "bolte bolse",
+		"কলে", "কল", "লিংক", "মেসেজ", "ইমেইল", "চেয়েছে", "চাইছে", "চাচ্ছে", "চাচ্ছিল", "চেয়েছে", "ফোন", "লক", "শেয়ার", "শেয়ার", "বলতে", "দিতে", "ব্লক", "ভেরিফাই",
 	)
 	if credential && socialAction {
 		return true
@@ -130,12 +130,24 @@ func isPhishingComplaint(norm string) bool {
 	if containsAny(norm, "sms", "message", "email", "মেসেজ", "ইমেইল") && containsAny(norm, "link", "click", "bonus", "verify", "suspend", "blocked", "লিংক", "ক্লিক", "বোনাস", "ভেরিফাই", "ব্লক", "লক") {
 		return true
 	}
-	if containsAny(norm, "prize", "cash prize", "lottery", "reward", "bonus") && containsAny(norm, "link", "otp", "pin", "verify", "account", "লিংক", "ওটিপি", "পিন", "ভেরিফাই") {
+	if containsAny(norm, "prize", "cash prize", "lottery", "reward", "bonus", "win", "won", "পুরস্কার", "লটারি", "জিতেছেন", "বোনাস", "puruskar", "jitchen", "jitesen") && containsAny(norm, "link", "otp", "pin", "verify", "account", "লিংক", "ওটিপি", "পিন", "ভেরিফাই") {
+		return true
+	}
+	impersonator := containsAny(norm,
+		"bkash officer", "head office", "customer care", "helpline", "support agent", "official support",
+		"বিকাশ অফিসার", "হেড অফিস", "কাস্টমার কেয়ার", "কাস্টমার কেয়ার", "হেল্পলাইন", "অফিসার",
+		"officer", "customer care theke", "helpline theke",
+	)
+	unsafeAsk := containsAny(norm,
+		"link", "otp", "pin", "password", "verify", "account", "blocked", "suspended", "unblock", "secret code", "gopon",
+		"লিংক", "ওটিপি", "পিন", "পাসওয়ার্ড", "পাসওয়ার্ড", "ভেরিফাই", "একাউন্ট", "অ্যাকাউন্ট", "ব্লক", "লক", "গোপন",
+	)
+	if impersonator && unsafeAsk {
 		return true
 	}
 
 	return containsAny(norm,
-		"phishing", "scam", "fraud", "suspicious link", "suspicious sms", "fake bkash", "fake support", "fake call", "fake link", "pretending", "claiming to be", "claims to be", "said they are from", "bkash officer", "support agent", "official support", "verify your account", "account verify", "account verification", "unblock your account", "account will be blocked", "account blocked", "account suspended", "suspension threat", "click this link", "click here", "login link", "reset link", "bonus link", "social engineering",
+		"phishing", "scam", "fraud", "suspicious link", "suspicious sms", "fake bkash", "fake support", "fake call", "fake link", "pretending", "claiming to be", "claims to be", "said they are from", "verify your account", "account verify", "account verification", "unblock your account", "account will be blocked", "account blocked", "account suspended", "suspension threat", "click this link", "click here", "login link", "reset link", "bonus link", "social engineering",
 		"প্রতার", "প্রতারণা", "স্ক্যাম", "ভুয়া", "ভুয়া", "ভুয়া কল", "ভুয়া কল", "ভুয়া লিংক", "ভুয়া লিংক", "লিংকে ক্লিক", "অ্যাকাউন্ট ব্লক", "একাউন্ট ব্লক", "অ্যাকাউন্ট লক", "একাউন্ট লক", "অ্যাকাউন্ট বন্ধ", "পুরস্কার", "বোনাস",
 	)
 }
@@ -294,8 +306,11 @@ func humanReviewRequired(ctx analysis) bool {
 	if ctx.caseType == model.CasePhishingSocialEngineering {
 		return true
 	}
+	if ctx.ambiguous && containsAny(ctx.norm, "wrong number", "wrong recipient", "wrong transfer", "sent to wrong", "bhul", "vul", "ভুল নাম্বার", "ভুল নম্বর", "ভুল") {
+		return true
+	}
 	if ctx.caseType == model.CaseMerchantSettlementDelay {
-		return false
+		return ctx.verdict == model.EvidenceInconsistent
 	}
 	if ctx.severity == model.SeverityCritical {
 		return true
