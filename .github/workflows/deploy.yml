@@ -72,14 +72,6 @@ jobs:
         env:
           SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
           RELEASE_DIR: /opt/queuestorm-investigator/releases/${{ github.sha }}
-          LLM_ENABLED: ${{ secrets.LLM_ENABLED }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          LLM_MODEL: ${{ secrets.LLM_MODEL }}
-          LLM_TIMEOUT_MS: ${{ secrets.LLM_TIMEOUT_MS }}
-          LLM_MAX_TOKENS: ${{ secrets.LLM_MAX_TOKENS }}
-          LLM_MIN_RULE_CONFIDENCE: ${{ secrets.LLM_MIN_RULE_CONFIDENCE }}
-          LLM_JSON_MODE: ${{ secrets.LLM_JSON_MODE }}
         run: |
           sshpass -p "$SSH_PASSWORD" ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" <<EOF
           set -euo pipefail
@@ -88,14 +80,7 @@ jobs:
           cp '$RELEASE_DIR/queuestorm-investigator.service' '/etc/systemd/system/$SERVICE_NAME.service'
           cat > '$DEPLOY_DIR/shared/env' <<ENVEOF
           PORT=8000
-          LLM_ENABLED=false
-          CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
-          CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
-          LLM_MODEL=${LLM_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
-          LLM_TIMEOUT_MS=${LLM_TIMEOUT_MS:-5000}
-          LLM_MAX_TOKENS=${LLM_MAX_TOKENS:-1200}
-          LLM_MIN_RULE_CONFIDENCE=${LLM_MIN_RULE_CONFIDENCE:-0.70}
-          LLM_JSON_MODE=${LLM_JSON_MODE:-false}
+          LOG_LEVEL=info
           ENVEOF
           chmod 0600 '$DEPLOY_DIR/shared/env'
           systemctl daemon-reload
@@ -120,7 +105,7 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:8000/analyze-ticket \
             -H 'Content-Type: application/json' \
             --data @/opt/queuestorm-investigator/current/sample_request.json \
-            | grep -q '"case_type":"payment_failed"'
+            | grep -q '"case_type":"wrong_transfer"'
           EOF
 
       - name: Clean old releases

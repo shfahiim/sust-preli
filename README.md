@@ -1,146 +1,133 @@
 # QueueStorm Investigator
 
-Deterministic Go API for the SUST CSE Carnival 2026 preliminary challenge.
+AI/API support ticket investigator for the **SUST CSE Carnival 2026** preliminary round.
 
-The service analyzes one support ticket at a time, compares the complaint with the supplied transaction history, classifies and routes the case, and returns the exact JSON response shape required by the problem statement.
+The service receives one customer complaint plus recent transaction history, compares the complaint against the evidence, classifies the case, routes it to the correct department, and returns a safe structured JSON response for support agents and customers.
 
-## Stack
+**Live base URL:** http://168.144.42.224:8000
 
-- Go 1.22+ using the standard `net/http` server.
-- No database.
-- Deterministic rules for evidence matching, classification, routing, severity, safety, and response templates.
-- Optional Cloudflare Workers AI adjudicator for ambiguous/low-confidence cases only.
+**GitHub:** https://github.com/shfahiim/sust-preli
 
-Rule-based logic is the primary path: the rubric heavily rewards evidence reasoning, schema correctness, safety, latency, and reliability. The optional LLM path is disabled by default and only runs when the deterministic engine marks a case as ambiguous, low-confidence, or likely under-classified. Any LLM timeout, quota issue, token-limit response, invalid JSON, unsafe wording, invalid enum, or invented transaction ID falls back to the deterministic rule response.
+---
 
-## Endpoints
+## Problem Statement Summary
 
-### `GET /health`
+QueueStorm Investigator is a complaint **investigator**, not just a classifier. For each ticket it must:
 
-Returns readiness JSON:
+1. Read the complaint text and optional context.
+2. Inspect the supplied `transaction_history`.
+3. Decide whether the complaint is **consistent**, **inconsistent**, or **insufficient_data** relative to the evidence.
+4. Return the official response schema with safe agent text and customer reply.
 
-```json
-{"status":"ok"}
+Required endpoints:
+
+| Method | Path | Response |
+|--------|------|----------|
+| `GET` | `/health` | `{"status":"ok"}` |
+| `POST` | `/analyze-ticket` | Structured analysis JSON |
+
+---
+
+## Tech Stack
+
+- **Language:** Go 1.22
+- **HTTP:** Standard library `net/http`
+- **Dependencies:** None beyond the Go standard library (`go.mod` only)
+- **Database:** None
+- **Primary AI path:** Deterministic rule-based engine (always runs)
+- **Optional AI path:** Cloudflare Workers AI adjudicator (local/dev only when enabled)
+- **Deployment:** Docker, systemd on VM, GitHub Actions CI/CD
+
+---
+
+## Architecture
+
+Every request follows a **rules-first** pipeline. The rule engine always produces a complete response first. An optional LLM adjudicator may refine ambiguous cases locally, but the live deployment keeps that path disabled.
+
+```mermaid
+flowchart TD
+    A[Judge Harness or Client] --> B[HTTP API Server]
+    B --> C[Input Validation]
+    C --> D[Rule-Based Analyzer]
+    D --> E{LLM enabled and\ncase ambiguous?}
+    E -->|No| G[Safety Sanitizer]
+    E -->|Yes| F[Cloudflare Workers AI Adjudicator]
+    F --> H{LLM output valid\nand safe?}
+    H -->|Yes| G
+    H -->|No| I[Fallback to Rule Response]
+    I --> G
+    G --> J[Structured JSON Response]
+
+    subgraph live [Live Deployment]
+        E
+    end
+
+    subgraph optional [Optional Local Path]
+        F
+    end
 ```
 
-### `POST /analyze-ticket`
+**Request flow:**
 
-Accepts the official request schema and returns the official response schema.
+1. **HTTP layer** (`internal/api/`) validates JSON, required fields, and complaint content.
+2. **Rule analyzer** (`internal/analyzer/`) normalizes text, scores transactions, assigns verdict/case/department/severity, and builds template text.
+3. **LLM gate** (`internal/adjudicator/`) runs only when `LLM_ENABLED=true` and Cloudflare credentials are present. On the **live deployment**, `LLM_ENABLED=false`, so this branch is skipped entirely.
+4. **Cloudflare Workers AI** (optional) receives the original request plus the rule result and may return a refined JSON answer for ambiguous/low-confidence cases.
+5. **Fallback:** If the LLM is disabled, times out, returns invalid JSON, uses invalid enums, invents a transaction ID, fails safety checks, or contradicts a high-confidence rule result, the service returns the original rule-based response unchanged.
+6. **Safety sanitizer** runs on all text fields before the JSON is sent to the client.
 
-```bash
-curl -s -X POST http://localhost:8000/analyze-ticket \
-  -H 'Content-Type: application/json' \
-  --data @testdata/sample_request.json
-```
+**Components:**
 
-## Local Run
+| Component | Package | Role |
+|-----------|---------|------|
+| API server | `internal/api/` | Routes, validation, middleware, orchestration |
+| Rule analyzer | `internal/analyzer/` | Evidence matching, classification, templates |
+| LLM adjudicator | `internal/adjudicator/` | Optional Cloudflare Workers AI refinement |
+| Types / enums | `internal/model/` | Official request/response schema |
 
-```bash
-go test ./...
-go run ./cmd/server
-```
+---
 
-The server binds to `0.0.0.0:${PORT}`. If `PORT` is unset it uses `8000`.
+## MODELS
 
-Smoke test:
+This submission uses a **rules-first architecture with an optional LLM adjudicator**. Judges evaluating the **live URL** will hit the deterministic rule engine only.
 
-```bash
-curl -i http://localhost:8000/health
-```
+### Primary model: deterministic rule engine
 
-## Docker
+| Item | Value |
+|------|-------|
+| Model | None — hand-crafted rules, patterns, and templates |
+| Where it runs | Inside the Go API process |
+| Inference cost | $0 |
+| Used on live deployment | **Yes — always** |
 
-```bash
-docker build -t queuestorm-investigator .
-docker run -p 8000:8000 --env-file .env.example queuestorm-investigator
-```
+The rule engine handles:
 
-## VM / CI-CD Deployment
+- Text normalization and keyword/pattern extraction (English, Bangla, mixed)
+- Transaction scoring and evidence verdict selection
+- Case-type taxonomy with fixed priority order
+- Department routing and severity assignment
+- Pre-audited response templates
 
-This repo includes GitHub Actions deployment to the team VM:
+This is the path used for all **10/10 public sample cases** on the live deployment.
 
-- Host: `168.144.42.224`
-- User: `root`
-- App port: `8000`
-- Required GitHub secret: `SSH_PASSWORD`
-- Optional GitHub secrets for LLM adjudication: `LLM_ENABLED`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_TOKENS`, `LLM_MIN_RULE_CONFIDENCE`, `LLM_JSON_MODE`
-- Workflow: `.github/workflows/deploy.yml`
-- Systemd unit: `deploy/queuestorm-investigator.service`
+### Optional model: Cloudflare Workers AI
 
-On every push to `main`, CI/CD will:
+| Item | Value |
+|------|-------|
+| Provider | Cloudflare Workers AI |
+| Default model | `@cf/qwen/qwen3-30b-a3b-fp8` (override with `LLM_MODEL`) |
+| Where it runs | Cloudflare hosted inference API |
+| Used on live deployment | **No — disabled** (`LLM_ENABLED=false`) |
+| Used locally | Optional — only if you set credentials in `.env` |
 
-1. Run `go test -count=1 ./...`.
-2. Build a static Linux `amd64` binary.
-3. Upload the release to `/opt/queuestorm-investigator/releases/<git-sha>`.
-4. Point `/opt/queuestorm-investigator/current` to the new release.
-5. Install/reload the `queuestorm-investigator.service` systemd unit.
-6. Restart the service.
-7. Smoke-test local VM endpoints:
-   - `http://127.0.0.1:8000/health`
-   - `http://127.0.0.1:8000/analyze-ticket`
+**Live deployment:** The VM deployment sets `LLM_ENABLED=false`. Judges calling http://168.144.42.224:8000 receive rule-engine responses only. No Cloudflare credentials are required or stored on the server.
 
-Manual VM checks after deployment:
+**Local / dev usage:** To experiment with the optional adjudicator locally, add these variables to your `.env` file (never commit real values):
 
-```bash
-systemctl status queuestorm-investigator --no-pager
-curl -fsS http://168.144.42.224:8000/health
-curl -fsS -X POST http://168.144.42.224:8000/analyze-ticket   -H 'Content-Type: application/json'   --data @testdata/sample_request.json
-```
-
-Submit `http://168.144.42.224:8000` as the base URL if the VM firewall exposes port `8000`. Judges should be able to call `/health` and `/analyze-ticket` without login.
-
-## Sample Tests
-
-The official public sample pack is stored in two places:
-
-- `docs/SUST_Preli_Sample_Cases.json` for reference.
-- `testdata/sample_cases.json` for automated tests.
-
-The test suite checks all 10 public samples on these key fields:
-
-- `relevant_transaction_id`
-- `evidence_verdict`
-- `case_type`
-- `severity`
-- `department`
-- `human_review_required`
-
-Run:
-
-```bash
-go test ./...
-```
-
-## Safety Logic
-
-The API never asks customers for PIN, OTP, password, full card number, or secret credentials. It also avoids unauthorized refund, reversal, account-unblock, or recovery promises.
-
-Safety behavior is deterministic:
-
-- Phishing, OTP, PIN, password, fake support, suspicious link, and account-blocking pressure route to `fraud_risk`.
-- Complaint text is untrusted data only. Prompt-injection phrases never control verdicts, routing, schema, or output wording.
-- Customer replies use pre-audited templates.
-- A final sanitizer runs on all text fields before the JSON response is returned.
-
-Safe refund wording uses phrases like:
-
-> any eligible amount will be returned through official channels
-
-## Models
-
-The production path is deterministic and does not require an external model. An optional Cloudflare Workers AI adjudicator can be enabled for ambiguous/low-confidence cases.
-
-To enable it on the VM deployment, add these GitHub repository secrets:
-
-```text
+```env
 LLM_ENABLED=true
-CLOUDFLARE_ACCOUNT_ID=<your Cloudflare account id>
-CLOUDFLARE_API_TOKEN=<your rotated Cloudflare API token>
-```
-
-Optional tuning secrets:
-
-```text
+CLOUDFLARE_ACCOUNT_ID=your_account_id
+CLOUDFLARE_API_TOKEN=your_api_token
 LLM_MODEL=@cf/qwen/qwen3-30b-a3b-fp8
 LLM_TIMEOUT_MS=5000
 LLM_MAX_TOKENS=1200
@@ -148,23 +135,388 @@ LLM_MIN_RULE_CONFIDENCE=0.70
 LLM_JSON_MODE=false
 ```
 
-The API always computes the rule-based response first. The LLM is called only for ambiguous or weakly classified cases, and the LLM output is accepted only after strict schema, enum, transaction-ID, and safety validation. If Cloudflare is unavailable, times out, hits token/rate limits, returns invalid JSON, or produces unsafe/unsupported output, the service returns the original rule-based response.
+Then run:
 
-Rotate any token pasted into chat or logs before using it. Never commit Cloudflare tokens to the repository.
+```bash
+go run ./cmd/server
+```
+
+### When the optional LLM is considered
+
+The LLM is **never** the primary classifier. It is called only when all of the following are true:
+
+- `LLM_ENABLED=true`
+- `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` are set
+- The rule engine marks the case as ambiguous or weak, for example:
+  - `ambiguous_match` in `reason_codes`
+  - confidence below `LLM_MIN_RULE_CONFIDENCE` (default `0.70`)
+  - `case_type = other` with money/risk signals in the complaint
+  - `insufficient_data` with transactions present and money/risk signals
+  - multi-issue complaints combining wrong transfer, failure, refund, or duplicate language
+
+The LLM is **not** called for clear phishing cases or high-confidence consistent matches (`confidence >= 0.90`).
+
+### Fallback mechanism
+
+The API **always computes the rule-based response first**. The optional LLM can only replace that answer after passing strict validation. If anything fails, the original rule response is returned.
+
+```text
+Rule analyzer → ruleResp
+       ↓
+Should adjudicate? ──no──→ return ruleResp
+       ↓ yes
+Call Cloudflare Workers AI
+       ↓
+Validate JSON schema, enums, ticket_id echo
+Validate transaction_id ∈ allowed_transaction_ids
+Validate safety on customer_reply and recommended_next_action
+Validate no contradiction with high-confidence rule result
+       ↓
+   pass? ──no──→ log fallback, return ruleResp
+       ↓ yes
+return LLM response (still sanitized by rule templates upstream)
+```
+
+**Fallback triggers (return rule response):**
+
+| Condition | Result |
+|-----------|--------|
+| `LLM_ENABLED=false` or missing Cloudflare credentials | Skip LLM entirely |
+| Network error, timeout, or non-2xx from Cloudflare | Rule response |
+| Invalid JSON or missing content from model | Rule response |
+| Invalid enum, confidence out of range, or missing text fields | Rule response |
+| Invented `relevant_transaction_id` not in request history | Rule response |
+| Unsafe wording in `customer_reply` or `recommended_next_action` | Rule response |
+| LLM contradicts a high-confidence consistent rule result | Rule response |
+
+This design keeps judging reliable: the live endpoint never depends on external AI availability, latency, or cost.
+
+### Why this approach
+
+| Goal | How it is met |
+|------|----------------|
+| Schema correctness | Typed Go structs + enum constants |
+| Evidence reasoning | Deterministic transaction scoring (35 pts category) |
+| Safety | Template + regex sanitizer; LLM output rejected if unsafe |
+| Latency / reliability | Live path is 100% local rules |
+| Reproducibility | Judges can rerun without API keys |
+| Optional polish | Local Cloudflare path for ambiguous edge cases |
+
+---
+
+## API Endpoints
+
+### `GET /health`
+
+Readiness check.
+
+```bash
+curl -s http://168.144.42.224:8000/health
+```
+
+```json
+{"status":"ok"}
+```
+
+### `POST /analyze-ticket`
+
+Analyzes one ticket.
+
+```bash
+curl -s -X POST http://168.144.42.224:8000/analyze-ticket \
+  -H 'Content-Type: application/json' \
+  --data @sample_outputs/sample_case_001_request.json
+```
+
+Required request fields: `ticket_id`, `complaint`.
+
+Required response fields: `ticket_id`, `relevant_transaction_id`, `evidence_verdict`, `case_type`, `severity`, `department`, `agent_summary`, `recommended_next_action`, `customer_reply`, `human_review_required`.
+
+Optional response fields: `confidence`, `reason_codes`.
+
+---
+
+## Request Schema
+
+```json
+{
+  "ticket_id": "TKT-001",
+  "complaint": "I sent 5000 taka to a wrong number...",
+  "language": "en",
+  "channel": "in_app_chat",
+  "user_type": "customer",
+  "campaign_context": "boishakh_bonanza_day_1",
+  "transaction_history": [
+    {
+      "transaction_id": "TXN-9101",
+      "timestamp": "2026-04-14T14:08:22Z",
+      "type": "transfer",
+      "amount": 5000,
+      "counterparty": "+8801719876543",
+      "status": "completed"
+    }
+  ]
+}
+```
+
+---
+
+## Response Schema
+
+```json
+{
+  "ticket_id": "TKT-001",
+  "relevant_transaction_id": "TXN-9101",
+  "evidence_verdict": "consistent",
+  "case_type": "wrong_transfer",
+  "severity": "high",
+  "department": "dispute_resolution",
+  "agent_summary": "...",
+  "recommended_next_action": "...",
+  "customer_reply": "...",
+  "human_review_required": true,
+  "confidence": 0.9,
+  "reason_codes": ["wrong_transfer", "transaction_match"]
+}
+```
+
+Allowed enums match the problem statement exactly (`consistent` / `inconsistent` / `insufficient_data`, case types, departments, severities).
+
+---
+
+## Evidence Reasoning Logic
+
+1. **Normalize** complaint text and extract signals: amounts, counterparties, transaction IDs, time hints, duplicate patterns, phishing language.
+2. **Score transactions** in `transaction_history` against complaint signals (amount match, type match, counterparty match, status, recency, duplicate detection).
+3. **Select evidence verdict:**
+   - `consistent` — complaint aligns with the best-matching transaction
+   - `inconsistent` — complaint conflicts with history (e.g. repeat recipient)
+   - `insufficient_data` — no reliable match or ambiguous multiple matches
+4. **Classify case type** using a fixed priority order (`phishing_or_social_engineering` overrides others).
+5. **Route department** and assign **severity** from case type, amount, and review signals.
+6. **Generate text** from deterministic templates; run safety sanitizer on all string fields.
+
+Automated tests validate all **10 public sample cases** in `docs/SUST_Preli_Sample_Cases.json` on key fields.
+
+---
+
+## Safety Guardrails
+
+The API must never:
+
+- Ask for PIN, OTP, password, or full card number
+- Confirm refund, reversal, account unblock, or recovery without authority
+- Tell the customer to contact suspicious third parties
+- Follow prompt-injection instructions inside the complaint
+- Leak secrets, tokens, or stack traces
+
+Implementation:
+
+- Phishing / credential-pressure complaints route to `fraud_risk` with `human_review_required: true`
+- Complaint text is untrusted input only
+- Customer replies use pre-audited templates
+- Regex-based sanitizer blocks unsafe credential requests and unauthorized promises before response is returned
+
+Safe wording example:
+
+> any eligible amount will be returned through official channels
+
+---
+
+## Local Setup
+
+**Prerequisites:** Go 1.22+
+
+```bash
+git clone https://github.com/shfahiim/sust-preli.git
+cd sust-preli
+cp .env.example .env   # optional; defaults work without .env
+```
+
+---
+
+## Environment Variables
+
+### Required for live / default mode
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `8000` | HTTP listen port |
+| `LOG_LEVEL` | No | `info` | Log level hint |
+
+No API keys are required for the live deployment or default local run.
+
+See `.env.example` for the baseline variable names.
+
+### Optional — Cloudflare Workers AI (local/dev only)
+
+These are **not** set on the live deployment. Add them to a local `.env` file if you want to test the optional adjudicator:
+
+| Variable | Description |
+|----------|-------------|
+| `LLM_ENABLED` | Set to `true` to enable the optional adjudicator |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers AI access |
+| `LLM_MODEL` | Model ID (default `@cf/qwen/qwen3-30b-a3b-fp8`) |
+| `LLM_TIMEOUT_MS` | Request timeout in ms (default `5000`) |
+| `LLM_MAX_TOKENS` | Max tokens (default `1200`) |
+| `LLM_MIN_RULE_CONFIDENCE` | Rule confidence threshold below which LLM may run (default `0.70`) |
+| `LLM_JSON_MODE` | Set to `true` to request JSON mode from the provider |
+
+---
+
+## Run Locally
+
+```bash
+go test ./...
+go run ./cmd/server
+```
+
+Smoke tests:
+
+```bash
+curl -s http://localhost:8000/health
+curl -s -X POST http://localhost:8000/analyze-ticket \
+  -H 'Content-Type: application/json' \
+  --data @sample_outputs/sample_case_001_request.json
+```
+
+The server binds to `0.0.0.0:${PORT}`.
+
+---
+
+## Run with Docker
+
+```bash
+docker build -t queuestorm-investigator .
+docker run -p 8000:8000 --env-file .env.example queuestorm-investigator
+```
+
+Then:
+
+```bash
+curl -s http://localhost:8000/health
+```
+
+---
+
+## Sample Output
+
+Official public sample pack: `docs/SUST_Preli_Sample_Cases.json`
+
+Submission sample output (generated from **SAMPLE-01** against the live deployment):
+
+| File | Description |
+|------|-------------|
+| `sample_outputs/sample_case_001_request.json` | Input from SAMPLE-01 |
+| `sample_outputs/sample_case_001_response.json` | Actual API response |
+| `sample_outputs/official_sample_run_results.json` | All 10 public cases run against live URL |
+
+**Validation result (live URL, all 10 cases):** 10/10 passed on key fields (`relevant_transaction_id`, `evidence_verdict`, `case_type`, `severity`, `department`, `human_review_required`).
+
+Regenerate locally:
+
+```bash
+go test ./...
+python3 scripts/run_official_samples.py --base-url http://168.144.42.224:8000
+```
+
+---
+
+## Deployment
+
+**Submission path:** Live URL (Path A)
+
+| Item | Value |
+|------|-------|
+| Base URL | http://168.144.42.224:8000 |
+| Health | http://168.144.42.224:8000/health |
+| Analyze | http://168.144.42.224:8000/analyze-ticket |
+
+Judges can call both endpoints directly without login.
+
+**Fallback:** Docker image builds from the included `Dockerfile`. Clone the repo, build, and run with `.env.example` — no secrets required.
+
+**Runbook (if live URL is unavailable):**
+
+```bash
+git clone https://github.com/shfahiim/sust-preli.git
+cd sust-preli
+go test ./...
+go run ./cmd/server
+# or
+docker build -t queuestorm-investigator .
+docker run -p 8000:8000 --env-file .env.example queuestorm-investigator
+curl -s http://localhost:8000/health
+curl -s -X POST http://localhost:8000/analyze-ticket \
+  -H 'Content-Type: application/json' \
+  --data @sample_outputs/sample_case_001_request.json
+```
+
+CI/CD: `.github/workflows/deploy.yml` deploys to the VM on push to `main`.
+
+---
+
+## Assumptions
+
+- Each request contains at most a handful of recent transactions (typical 2–5 entries).
+- Complaints may be English, Bangla, or mixed; rules cover common phrasing patterns.
+- `transaction_history` may be empty; the service still returns a valid schema.
+- Amounts may arrive as JSON numbers or strings; both are accepted.
+- The service is stateless: no persistence between requests.
+- Only synthetic/harness data is used; no real customer data.
+
+---
 
 ## Known Limitations
 
-- The analyzer is intentionally rule-based and may miss unusual phrasing outside the covered English, Bangla, and Banglish patterns.
-- Time reasoning is approximate; transaction matching relies more on amount, type, counterparty, status, and duplicate/recipient patterns.
-- Bangla templates are strongest for phishing and agent cash-in cases; uncertain mixed-language cases use safe English fallback.
-- Hidden tests may include edge cases beyond the public samples, so the rules are pattern-based rather than sample-ID based.
+- Rule-based matching may miss unusual phrasing outside covered English, Bangla, and Banglish patterns.
+- Time reasoning is approximate; matching relies more on amount, type, counterparty, status, and duplicate patterns.
+- Bangla templates are strongest for phishing and agent cash-in cases; uncertain mixed-language cases may fall back to safe English.
+- Hidden judge cases may include edge cases beyond the 10 public samples; logic is pattern-based, not sample-ID memorization.
+- Live URL uses HTTP on a VM IP; HTTPS was not configured for this submission.
 
-## Documentation
+---
 
-Source challenge documents and the implementation plan are in `docs/`:
+## Submission Notes
 
-- `docs/PLAN.md`
-- `docs/Evaluation_Rubric.md`
-- `docs/Team_instruction_manual.md`
-- `docs/problem_statement_extracted.txt`
-- Original PDFs
+| Deliverable | Location |
+|-------------|----------|
+| GitHub repository | https://github.com/shfahiim/sust-preli (public) |
+| Live endpoint | http://168.144.42.224:8000 |
+| Dependency file | `go.mod` |
+| Sample output | `sample_outputs/sample_case_001_response.json` |
+| Environment template | `.env.example` |
+| Public sample pack | `docs/SUST_Preli_Sample_Cases.json` |
+| Docker fallback | `Dockerfile` |
+
+- No real API keys are committed to the repository.
+- No real customer data is used.
+- Live deployment uses the rule engine only (`LLM_ENABLED=false` on the VM).
+- Optional Cloudflare Workers AI is documented for local experimentation only.
+
+---
+
+## Repository Layout
+
+```text
+cmd/server/              Application entrypoint
+internal/analyzer/       Evidence matching, classification, templates, safety
+internal/api/            HTTP handlers and validation
+internal/model/          Request/response types and enums
+docs/                    Official challenge documents and sample pack
+sample_outputs/          Submission sample request/response + full run results
+testdata/                Test fixtures used by go test
+scripts/                 Helper scripts for sample validation
+Dockerfile               Container build
+deploy/                  systemd unit for VM deployment
+```
+
+---
+
+## Reference Documents
+
+- `docs/SUST_Preli_Sample_Cases.json` — public sample case pack
+- `docs/Evaluation_Rubric.md` — scoring rubric
+- `docs/Team_instruction_manual.md` — submission instructions
+- `docs/problem_statement_extracted.txt` — problem statement text
