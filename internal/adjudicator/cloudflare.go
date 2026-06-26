@@ -92,12 +92,12 @@ type Cloudflare struct {
 
 func ConfigFromEnv() Config {
 	return Config{
-		Enabled:       !strings.EqualFold(os.Getenv("LLM_ENABLED"), "false"),
+		Enabled:       strings.EqualFold(os.Getenv("LLM_ENABLED"), "true"),
 		AccountID:     os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		APIToken:      os.Getenv("CLOUDFLARE_API_TOKEN"),
-		Model:         envString("LLM_MODEL", "openai/gpt-5-nano"),
-		Timeout:       time.Duration(envInt("LLM_TIMEOUT_MS", 2500)) * time.Millisecond,
-		MaxTokens:     envInt("LLM_MAX_TOKENS", 900),
+		Model:         envString("LLM_MODEL", "@cf/qwen/qwen3-30b-a3b-fp8"),
+		Timeout:       time.Duration(envInt("LLM_TIMEOUT_MS", 5000)) * time.Millisecond,
+		MaxTokens:     envInt("LLM_MAX_TOKENS", 1200),
 		MinConfidence: envFloat("LLM_MIN_RULE_CONFIDENCE", 0.70),
 		JSONMode:      strings.EqualFold(os.Getenv("LLM_JSON_MODE"), "true"),
 	}
@@ -113,13 +113,13 @@ func NewFromEnv() Adjudicator {
 
 func NewCloudflare(cfg Config, client *http.Client) *Cloudflare {
 	if cfg.Model == "" {
-		cfg.Model = "openai/gpt-5-nano"
+		cfg.Model = "@cf/qwen/qwen3-30b-a3b-fp8"
 	}
 	if cfg.Timeout <= 0 {
-		cfg.Timeout = 2500 * time.Millisecond
+		cfg.Timeout = 5000 * time.Millisecond
 	}
 	if cfg.MaxTokens <= 0 {
-		cfg.MaxTokens = 900
+		cfg.MaxTokens = 1200
 	}
 	if cfg.MinConfidence <= 0 || cfg.MinConfidence > 1 {
 		cfg.MinConfidence = 0.70
@@ -164,7 +164,13 @@ func (c *Cloudflare) Adjudicate(ctx context.Context, req model.Request, ruleResp
 
 	httpResp, err := c.client.Do(httpReq)
 	if err != nil {
-		return model.Response{}, err
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return model.Response{}, errors.New("cloudflare llm timeout")
+		}
+		if errors.Is(ctx.Err(), context.Canceled) {
+			return model.Response{}, errors.New("cloudflare llm request canceled")
+		}
+		return model.Response{}, errors.New("cloudflare llm request failed")
 	}
 	defer httpResp.Body.Close()
 	if httpResp.StatusCode < 200 || httpResp.StatusCode >= 300 {
@@ -197,11 +203,17 @@ func (c *Cloudflare) requestPayload(req model.Request, ruleResp model.Response) 
 	if err != nil {
 		return nil, err
 	}
+	systemPrompt := defaultSystemPrompt
+	userContent := string(userBytes)
+	if strings.Contains(strings.ToLower(c.config.Model), "qwen3") {
+		systemPrompt = "/no_think\n" + systemPrompt
+		userContent = "/no_think\n" + userContent
+	}
 	payload := map[string]interface{}{
 		"model": c.config.Model,
 		"messages": []map[string]string{
-			{"role": "system", "content": defaultSystemPrompt},
-			{"role": "user", "content": string(userBytes)},
+			{"role": "system", "content": systemPrompt},
+			{"role": "user", "content": userContent},
 		},
 		"max_tokens": c.config.MaxTokens,
 	}

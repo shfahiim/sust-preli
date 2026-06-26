@@ -141,9 +141,9 @@ CLOUDFLARE_API_TOKEN=<your rotated Cloudflare API token>
 Optional tuning secrets:
 
 ```text
-LLM_MODEL=openai/gpt-5-nano
-LLM_TIMEOUT_MS=2500
-LLM_MAX_TOKENS=900
+LLM_MODEL=@cf/qwen/qwen3-30b-a3b-fp8
+LLM_TIMEOUT_MS=5000
+LLM_MAX_TOKENS=1200
 LLM_MIN_RULE_CONFIDENCE=0.70
 LLM_JSON_MODE=false
 ```
