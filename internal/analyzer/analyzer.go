@@ -110,7 +110,7 @@ func classify(req model.Request, norm string) string {
 }
 
 func isPhishingComplaint(norm string) bool {
-	if containsAny(norm, "my pin is", "my otp is", "my password is", "আমার পিন", "আমার ওটিপি") && !containsAny(norm, "called", "caller", "sms", "message", "email", "link", "scam", "fake", "asked", "চেয়েছে", "চাইছে") {
+	if containsAny(norm, "my pin is", "my otp is", "my password is", "আমার পিন", "আমার ওটিপি") && !containsAny(norm, "called", "caller", "sms", "message", "email", "link", "scam", "fake", "asked", "চেয়েছে", "চাইছে", "চাচ্ছে", "চাচ্ছিল", "ফোন", "লক") {
 		return false
 	}
 
@@ -121,13 +121,13 @@ func isPhishingComplaint(norm string) bool {
 	socialAction := containsAny(norm,
 		"ask", "asked", "asking", "ask for", "called", "caller", "sms", "message", "email", "link", "blocked", "suspend", "suspended", "verify", "share", "send", "unblock", "login", "reset",
 		"chaiche", "chay", "bolse", "bollo", "dise", "call dise", "click korte", "verify korte",
-		"কলে", "কল", "লিংক", "মেসেজ", "ইমেইল", "চেয়েছে", "চাইছে", "চেয়েছে", "শেয়ার", "শেয়ার", "ব্লক", "ভেরিফাই",
+		"কলে", "কল", "লিংক", "মেসেজ", "ইমেইল", "চেয়েছে", "চাইছে", "চাচ্ছে", "চাচ্ছিল", "চেয়েছে", "ফোন", "লক", "শেয়ার", "শেয়ার", "ব্লক", "ভেরিফাই",
 	)
 	if credential && socialAction {
 		return true
 	}
 
-	if containsAny(norm, "sms", "message", "email", "মেসেজ", "ইমেইল") && containsAny(norm, "link", "click", "bonus", "verify", "suspend", "blocked", "লিংক", "ক্লিক", "বোনাস", "ভেরিফাই", "ব্লক") {
+	if containsAny(norm, "sms", "message", "email", "মেসেজ", "ইমেইল") && containsAny(norm, "link", "click", "bonus", "verify", "suspend", "blocked", "লিংক", "ক্লিক", "বোনাস", "ভেরিফাই", "ব্লক", "লক") {
 		return true
 	}
 	if containsAny(norm, "prize", "cash prize", "lottery", "reward", "bonus") && containsAny(norm, "link", "otp", "pin", "verify", "account", "লিংক", "ওটিপি", "পিন", "ভেরিফাই") {
@@ -136,7 +136,7 @@ func isPhishingComplaint(norm string) bool {
 
 	return containsAny(norm,
 		"phishing", "scam", "fraud", "suspicious link", "suspicious sms", "fake bkash", "fake support", "fake call", "fake link", "pretending", "claiming to be", "claims to be", "said they are from", "bkash officer", "support agent", "official support", "verify your account", "account verify", "account verification", "unblock your account", "account will be blocked", "account blocked", "account suspended", "suspension threat", "click this link", "click here", "login link", "reset link", "bonus link", "social engineering",
-		"প্রতার", "প্রতারণা", "স্ক্যাম", "ভুয়া", "ভুয়া", "ভুয়া কল", "ভুয়া কল", "ভুয়া লিংক", "ভুয়া লিংক", "লিংকে ক্লিক", "অ্যাকাউন্ট ব্লক", "একাউন্ট ব্লক", "অ্যাকাউন্ট বন্ধ", "পুরস্কার", "বোনাস",
+		"প্রতার", "প্রতারণা", "স্ক্যাম", "ভুয়া", "ভুয়া", "ভুয়া কল", "ভুয়া কল", "ভুয়া লিংক", "ভুয়া লিংক", "লিংকে ক্লিক", "অ্যাকাউন্ট ব্লক", "একাউন্ট ব্লক", "অ্যাকাউন্ট লক", "একাউন্ট লক", "অ্যাকাউন্ট বন্ধ", "পুরস্কার", "বোনাস",
 	)
 }
 

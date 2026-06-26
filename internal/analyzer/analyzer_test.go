@@ -368,6 +368,24 @@ func TestHiddenCaseHardening(t *testing.T) {
 			wantTx: "TXN-BN-SETTLE", wantCase: model.CaseMerchantSettlementDelay, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityMedium, wantDept: model.DepartmentMerchantOperations, wantReview: false,
 		},
 		{
+			name: "bangla phishing pin request call",
+			req: model.Request{
+				TicketID:  "T-BN-PHISH-PIN",
+				Complaint: "আমাকে একজন ফোন করে পিন নাম্বার চাচ্ছে, বলছে একাউন্ট লক হয়ে যাবে।",
+				Language:  "bn",
+			},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
+		{
+			name: "bangla phishing otp request",
+			req: model.Request{
+				TicketID:  "T-BN-PHISH-OTP",
+				Complaint: "কে যেন ফোন করে ওটিপি চাচ্ছিল।",
+				Language:  "bn",
+			},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
+		{
 			name: "banglish phishing prize link",
 			req: model.Request{
 				TicketID:  "T-BANGLISH-PHISH",
