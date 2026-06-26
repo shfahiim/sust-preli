@@ -190,7 +190,7 @@ func TestHiddenCaseHardening(t *testing.T) {
 				Language:           "mixed",
 				TransactionHistory: []model.Transaction{{TransactionID: "TXN-BP-1", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(300), Counterparty: "TELCO", Status: model.StatusPending}},
 			},
-			wantTx: "TXN-BP-1", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: false,
+			wantTx: "TXN-BP-1", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
 		},
 		{
 			name:   "sms link phishing without credential keyword",

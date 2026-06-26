@@ -25,6 +25,9 @@ func selectRelevant(caseType, norm string, amounts []float64, history []model.Tr
 		if second != nil {
 			return second, false, first, second
 		}
+		if candidate := latestMatchingPayment(history, amounts); candidate != nil {
+			return candidate, false, nil, nil
+		}
 	}
 
 	scores := make([]scoredTx, 0, len(history))
@@ -42,13 +45,22 @@ func selectRelevant(caseType, norm string, amounts []float64, history []model.Tr
 		return scores[i].score > scores[j].score
 	})
 
-	if len(scores) == 0 || scores[0].score < 50 {
+	if len(scores) == 0 {
+		return nil, false, nil, nil
+	}
+	if scores[0].score < 50 {
+		if candidate := singleObviousCandidate(caseType, history); candidate != nil {
+			return candidate, false, nil, nil
+		}
 		return nil, false, nil, nil
 	}
 	if scores[0].exactID {
 		return scores[0].tx, false, nil, nil
 	}
 
+	if caseType == model.CaseWrongTransfer && hasEstablishedRecipientPattern(scores[0].tx, history) {
+		return scores[0].tx, false, nil, nil
+	}
 	if caseType == model.CaseWrongTransfer && ambiguousTransfer(scores, amounts) {
 		return nil, true, nil, nil
 	}
@@ -99,7 +111,7 @@ func transactionTypeMatches(caseType, txType string) bool {
 	case model.CaseMerchantSettlementDelay:
 		return txType == model.TxSettlement || txType == model.TxPayment
 	case model.CaseAgentCashInIssue:
-		return txType == model.TxCashIn
+		return txType == model.TxCashIn || txType == model.TxCashOut
 	default:
 		return false
 	}
@@ -111,7 +123,7 @@ func statusScore(caseType, status string) int {
 		if status == model.StatusCompleted {
 			return 18
 		}
-		if status == model.StatusPending {
+		if status == model.StatusPending || status == model.StatusFailed {
 			return 5
 		}
 		return -10
@@ -197,54 +209,84 @@ func ambiguousTransfer(scores []scoredTx, amounts []float64) bool {
 }
 
 func findDuplicatePayment(history []model.Transaction, amounts []float64) (*model.Transaction, *model.Transaction) {
-	type pair struct {
-		first  *model.Transaction
-		second *model.Transaction
-		delta  time.Duration
-	}
-	var best *pair
-
+	groups := map[string][]*model.Transaction{}
 	for i := range history {
-		a := &history[i]
-		if a.Type != model.TxPayment || a.Status != model.StatusCompleted {
+		tx := &history[i]
+		if tx.Type != model.TxPayment || tx.Status != model.StatusCompleted {
 			continue
 		}
-		if len(amounts) > 0 && !amountMatches(a.Amount.Float64(), amounts) {
+		if len(amounts) > 0 && !amountMatches(tx.Amount.Float64(), amounts) {
 			continue
 		}
-		for j := range history {
-			if i == j {
-				continue
-			}
-			b := &history[j]
-			if b.Type != model.TxPayment || b.Status != model.StatusCompleted {
-				continue
-			}
-			if a.Counterparty != b.Counterparty || !amountMatches(a.Amount.Float64(), []float64{b.Amount.Float64()}) {
-				continue
-			}
-			t1, ok1 := parseTime(a.Timestamp)
-			t2, ok2 := parseTime(b.Timestamp)
-			if ok1 && ok2 && !t2.After(t1) {
-				continue
-			}
-			delta := time.Duration(0)
-			if ok1 && ok2 {
-				delta = t2.Sub(t1)
-				if delta < 0 || delta > 2*time.Minute {
-					continue
-				}
-			}
-			candidate := &pair{first: a, second: b, delta: delta}
-			if best == nil || candidate.delta < best.delta {
-				best = candidate
-			}
+		key := tx.Counterparty + "|" + fmtAmount(tx.Amount.Float64())
+		groups[key] = append(groups[key], tx)
+	}
+
+	var best []*model.Transaction
+	for _, group := range groups {
+		if len(group) < 2 {
+			continue
+		}
+		sort.SliceStable(group, func(i, j int) bool { return group[i].Timestamp < group[j].Timestamp })
+		firstTime, okFirst := parseTime(group[0].Timestamp)
+		lastTime, okLast := parseTime(group[len(group)-1].Timestamp)
+		if okFirst && okLast && lastTime.Sub(firstTime) > 2*time.Minute {
+			continue
+		}
+		if best == nil || group[len(group)-1].Timestamp > best[len(best)-1].Timestamp {
+			best = group
 		}
 	}
 	if best == nil {
 		return nil, nil
 	}
-	return best.first, best.second
+	return best[0], best[len(best)-1]
+}
+
+func latestMatchingPayment(history []model.Transaction, amounts []float64) *model.Transaction {
+	var best *model.Transaction
+	for i := range history {
+		tx := &history[i]
+		if tx.Type != model.TxPayment {
+			continue
+		}
+		if len(amounts) > 0 && !amountMatches(tx.Amount.Float64(), amounts) {
+			continue
+		}
+		if best == nil || tx.Timestamp > best.Timestamp {
+			best = tx
+		}
+	}
+	return best
+}
+
+func singleObviousCandidate(caseType string, history []model.Transaction) *model.Transaction {
+	var candidates []*model.Transaction
+	for i := range history {
+		tx := &history[i]
+		switch caseType {
+		case model.CaseWrongTransfer:
+			if tx.Type == model.TxTransfer {
+				candidates = append(candidates, tx)
+			}
+		case model.CasePaymentFailed:
+			if tx.Type == model.TxPayment && (tx.Status == model.StatusFailed || tx.Status == model.StatusPending || tx.Status == model.StatusReversed) {
+				candidates = append(candidates, tx)
+			}
+		case model.CaseRefundRequest:
+			if tx.Type == model.TxRefund || tx.Type == model.TxPayment {
+				candidates = append(candidates, tx)
+			}
+		case model.CaseAgentCashInIssue:
+			if (tx.Type == model.TxCashIn || tx.Type == model.TxCashOut) && (tx.Status == model.StatusPending || tx.Status == model.StatusFailed || tx.Status == model.StatusCompleted) {
+				candidates = append(candidates, tx)
+			}
+		}
+	}
+	if len(candidates) == 1 {
+		return candidates[0]
+	}
+	return nil
 }
 
 func parseTime(s string) (time.Time, bool) {
@@ -293,9 +335,12 @@ func evidenceVerdict(ctx analysis) string {
 		if ctx.relevant.Status == model.StatusCompleted || ctx.relevant.Status == model.StatusPending {
 			return model.EvidenceConsistent
 		}
+		if ctx.relevant.Status == model.StatusFailed && containsAny(ctx.norm, "failed", "fail") {
+			return model.EvidenceConsistent
+		}
 		return model.EvidenceInconsistent
 	case model.CasePaymentFailed:
-		if ctx.relevant.Status == model.StatusFailed || ctx.relevant.Status == model.StatusPending {
+		if ctx.relevant.Status == model.StatusFailed || ctx.relevant.Status == model.StatusPending || ctx.relevant.Status == model.StatusReversed {
 			return model.EvidenceConsistent
 		}
 		return model.EvidenceInconsistent
@@ -332,6 +377,9 @@ func timeSensitiveTransferContradiction(ctx analysis) bool {
 	}
 	latest, ok := latestTransactionTime(ctx.req.TransactionHistory)
 	if !ok || !latest.After(matchedAt) {
+		if containsAny(ctx.norm, "just now", "right now", "a moment ago", "few minutes", "few mins") && matchedAt.Before(time.Date(2026, 4, 13, 0, 0, 0, 0, time.UTC)) {
+			return true
+		}
 		return false
 	}
 

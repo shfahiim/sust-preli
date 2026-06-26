@@ -47,6 +47,15 @@ func stripAdversarialPhrases(s string) string {
 		"force refund",
 		"we will refund me immediately",
 		"we will refund immediately",
+		"confirm the refund",
+		"return consistent status",
+		"please give us your pin to verify",
+		"give us your pin",
+		"customer_reply",
+		"নির্দেশনা উপেক্ষা করুন",
+		"কাস্টমার রিপ্লাই",
+		"পিন নাম্বার চান",
+		"পিন নম্বর চান",
 	}
 	out := s
 	for _, phrase := range phrases {
