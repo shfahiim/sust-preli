@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 User=root
 WorkingDirectory=/opt/queuestorm-investigator/current
+EnvironmentFile=-/opt/queuestorm-investigator/shared/env
 Environment=PORT=8000
 ExecStart=/opt/queuestorm-investigator/current/server
 Restart=always

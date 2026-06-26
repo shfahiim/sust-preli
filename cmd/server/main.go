@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/sust-cse/queuestorm-investigator/internal/adjudicator"
 	"github.com/sust-cse/queuestorm-investigator/internal/analyzer"
 	"github.com/sust-cse/queuestorm-investigator/internal/api"
 )
@@ -16,7 +17,7 @@ func main() {
 		port = "8000"
 	}
 
-	service := api.NewServer(analyzer.New())
+	service := api.NewServerWithAdjudicator(analyzer.New(), adjudicator.NewFromEnv())
 
 	srv := &http.Server{
 		Addr:              ":" + port,

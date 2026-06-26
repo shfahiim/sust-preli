@@ -8,16 +8,25 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sust-cse/queuestorm-investigator/internal/adjudicator"
 	"github.com/sust-cse/queuestorm-investigator/internal/analyzer"
 	"github.com/sust-cse/queuestorm-investigator/internal/model"
 )
 
 type Server struct {
-	analyzer *analyzer.Analyzer
+	analyzer    *analyzer.Analyzer
+	adjudicator adjudicator.Adjudicator
 }
 
 func NewServer(analyzer *analyzer.Analyzer) *Server {
-	return &Server{analyzer: analyzer}
+	return NewServerWithAdjudicator(analyzer, adjudicator.Noop{})
+}
+
+func NewServerWithAdjudicator(analyzer *analyzer.Analyzer, adj adjudicator.Adjudicator) *Server {
+	if adj == nil {
+		adj = adjudicator.Noop{}
+	}
+	return &Server{analyzer: analyzer, adjudicator: adj}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -56,7 +65,15 @@ func (s *Server) analyzeTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := s.analyzer.Analyze(req)
+	ruleResp := s.analyzer.Analyze(req)
+	resp := ruleResp
+	if s.adjudicator.ShouldAdjudicate(req, ruleResp) {
+		if llmResp, err := s.adjudicator.Adjudicate(r.Context(), req, ruleResp); err == nil {
+			resp = llmResp
+		} else {
+			log.Printf("llm adjudication fallback ticket_id=%s err=%s", req.TicketID, err.Error())
+		}
+	}
 	writeJSON(w, http.StatusOK, resp)
 }
 

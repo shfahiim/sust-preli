@@ -8,10 +8,10 @@ The service analyzes one support ticket at a time, compares the complaint with t
 
 - Go 1.22+ using the standard `net/http` server.
 - No database.
-- No LLM or paid AI API dependency.
 - Deterministic rules for evidence matching, classification, routing, severity, safety, and response templates.
+- Optional Cloudflare Workers AI adjudicator for ambiguous/low-confidence cases only.
 
-Rule-based logic is intentional here: the rubric heavily rewards evidence reasoning, schema correctness, safety, latency, and reliability. Avoiding model calls removes quota, cost, network, prompt-injection, and nondeterministic-output risk.
+Rule-based logic is the primary path: the rubric heavily rewards evidence reasoning, schema correctness, safety, latency, and reliability. The optional LLM path is disabled by default and only runs when the deterministic engine marks a case as ambiguous, low-confidence, or likely under-classified. Any LLM timeout, quota issue, token-limit response, invalid JSON, unsafe wording, invalid enum, or invented transaction ID falls back to the deterministic rule response.
 
 ## Endpoints
 
@@ -62,7 +62,8 @@ This repo includes GitHub Actions deployment to the team VM:
 - Host: `168.144.42.224`
 - User: `root`
 - App port: `8000`
-- Secret required in GitHub: `SSH_PASSWORD`
+- Required GitHub secret: `SSH_PASSWORD`
+- Optional GitHub secrets for LLM adjudication: `LLM_ENABLED`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `LLM_MODEL`, `LLM_TIMEOUT_MS`, `LLM_MAX_TOKENS`, `LLM_MIN_RULE_CONFIDENCE`, `LLM_JSON_MODE`
 - Workflow: `.github/workflows/deploy.yml`
 - Systemd unit: `deploy/queuestorm-investigator.service`
 
@@ -127,7 +128,29 @@ Safe refund wording uses phrases like:
 
 ## Models
 
-No external model is used in this implementation. No `OPENAI_API_KEY`, `GEMINI_API_KEY`, model download, GPU, or network call is required.
+The production path is deterministic and does not require an external model. An optional Cloudflare Workers AI adjudicator can be enabled for ambiguous/low-confidence cases.
+
+To enable it on the VM deployment, add these GitHub repository secrets:
+
+```text
+LLM_ENABLED=true
+CLOUDFLARE_ACCOUNT_ID=<your Cloudflare account id>
+CLOUDFLARE_API_TOKEN=<your rotated Cloudflare API token>
+```
+
+Optional tuning secrets:
+
+```text
+LLM_MODEL=openai/gpt-5-nano
+LLM_TIMEOUT_MS=2500
+LLM_MAX_TOKENS=900
+LLM_MIN_RULE_CONFIDENCE=0.70
+LLM_JSON_MODE=false
+```
+
+The API always computes the rule-based response first. The LLM is called only for ambiguous or weakly classified cases, and the LLM output is accepted only after strict schema, enum, transaction-ID, and safety validation. If Cloudflare is unavailable, times out, hits token/rate limits, returns invalid JSON, or produces unsafe/unsupported output, the service returns the original rule-based response.
+
+Rotate any token pasted into chat or logs before using it. Never commit Cloudflare tokens to the repository.
 
 ## Known Limitations
 
