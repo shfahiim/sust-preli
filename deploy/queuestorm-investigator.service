@@ -1,0 +1,20 @@
+[Unit]
+Description=QueueStorm Investigator API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/queuestorm-investigator/current
+Environment=PORT=8000
+ExecStart=/opt/queuestorm-investigator/current/server
+Restart=always
+RestartSec=3
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

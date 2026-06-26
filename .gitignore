@@ -1,0 +1,14 @@
+# Build artifacts
+/server
+/dist/
+/tmp/
+*.test
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+*.swp

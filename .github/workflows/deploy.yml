@@ -1,0 +1,112 @@
+name: CI/CD Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+env:
+  APP_NAME: queuestorm-investigator
+  DEPLOY_HOST: 168.144.42.224
+  DEPLOY_USER: root
+  DEPLOY_PORT: "22"
+  DEPLOY_DIR: /opt/queuestorm-investigator
+  SERVICE_NAME: queuestorm-investigator
+  APP_PORT: "8000"
+
+jobs:
+  test-build-deploy:
+    name: Test, Build, Deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+          cache: true
+
+      - name: Run tests
+        run: go test -count=1 ./...
+
+      - name: Build Linux binary
+        run: |
+          mkdir -p dist
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o dist/server ./cmd/server
+
+      - name: Prepare SSH client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y sshpass
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -p "$DEPLOY_PORT" -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Prepare remote release directory
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          RELEASE_DIR: /opt/queuestorm-investigator/releases/${{ github.sha }}
+        run: |
+          test -n "$SSH_PASSWORD"
+          sshpass -p "$SSH_PASSWORD" ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "mkdir -p '$RELEASE_DIR' '$DEPLOY_DIR/shared'"
+
+      - name: Upload release files
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          RELEASE_DIR: /opt/queuestorm-investigator/releases/${{ github.sha }}
+        run: |
+          sshpass -p "$SSH_PASSWORD" scp -P "$DEPLOY_PORT" dist/server "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/server"
+          sshpass -p "$SSH_PASSWORD" scp -P "$DEPLOY_PORT" deploy/queuestorm-investigator.service "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/queuestorm-investigator.service"
+          sshpass -p "$SSH_PASSWORD" scp -P "$DEPLOY_PORT" testdata/sample_request.json "$DEPLOY_USER@$DEPLOY_HOST:$RELEASE_DIR/sample_request.json"
+
+      - name: Activate release and restart service
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          RELEASE_DIR: /opt/queuestorm-investigator/releases/${{ github.sha }}
+        run: |
+          sshpass -p "$SSH_PASSWORD" ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" <<EOF
+          set -euo pipefail
+          chmod 0755 '$RELEASE_DIR/server'
+          ln -sfn '$RELEASE_DIR' '$DEPLOY_DIR/current'
+          cp '$RELEASE_DIR/queuestorm-investigator.service' '/etc/systemd/system/$SERVICE_NAME.service'
+          systemctl daemon-reload
+          systemctl enable '$SERVICE_NAME.service'
+          systemctl restart '$SERVICE_NAME.service'
+          systemctl --no-pager --full status '$SERVICE_NAME.service'
+          EOF
+
+      - name: Remote smoke test
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sshpass -p "$SSH_PASSWORD" ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" "bash -s" <<'EOF'
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8000/health | grep -q '"status":"ok"'; then
+              break
+            fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8000/health
+          curl -fsS -X POST http://127.0.0.1:8000/analyze-ticket \
+            -H 'Content-Type: application/json' \
+            --data @/opt/queuestorm-investigator/current/sample_request.json \
+            | grep -q '"case_type":"payment_failed"'
+          EOF
+
+      - name: Clean old releases
+        if: success()
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sshpass -p "$SSH_PASSWORD" ssh -p "$DEPLOY_PORT" "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_DIR/releases' && ls -1dt */ 2>/dev/null | tail -n +6 | xargs -r rm -rf"
