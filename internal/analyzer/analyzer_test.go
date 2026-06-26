@@ -300,6 +300,82 @@ func TestHiddenCaseHardening(t *testing.T) {
 			},
 			wantTx: "TXN-DUP-FAILED", wantCase: model.CaseDuplicatePayment, wantVerdict: model.EvidenceInconsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
 		},
+
+		{
+			name: "bangla bill payment failed with balance deducted",
+			req: model.Request{
+				TicketID:  "T-BN-BILL-FAILED",
+				Complaint: "আমি 1250 টাকা বিদ্যুৎ বিল দিয়েছিলাম কিন্তু ফেইল দেখাচ্ছে। অথচ আমার একাউন্ট থেকে ব্যালেন্স কেটে নিয়েছে।",
+				Language:  "bn",
+				TransactionHistory: []model.Transaction{{
+					TransactionID: "TXN-BN-BILL",
+					Timestamp:     "2026-04-14T10:00:00Z",
+					Type:          model.TxPayment,
+					Amount:        model.FlexibleFloat(1250),
+					Counterparty:  "BILLER-DESCO",
+					Status:        model.StatusFailed,
+				}},
+			},
+			wantTx: "TXN-BN-BILL", wantCase: model.CasePaymentFailed, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: false,
+		},
+		{
+			name: "bangla product refund request completed payment",
+			req: model.Request{
+				TicketID:  "T-BN-REFUND",
+				Complaint: "আমি MERCHANT-CLOTHES কে 900 টাকা দিয়েছিলাম। প্রোডাক্ট ভালো লাগেনি, রিফান্ড চাই।",
+				Language:  "bn",
+				TransactionHistory: []model.Transaction{{
+					TransactionID: "TXN-BN-REFUND",
+					Timestamp:     "2026-04-14T10:00:00Z",
+					Type:          model.TxPayment,
+					Amount:        model.FlexibleFloat(900),
+					Counterparty:  "MERCHANT-CLOTHES",
+					Status:        model.StatusCompleted,
+				}},
+			},
+			wantTx: "TXN-BN-REFUND", wantCase: model.CaseRefundRequest, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityLow, wantDept: model.DepartmentCustomerSupport, wantReview: false,
+		},
+		{
+			name: "banglish duplicate payment wording",
+			req: model.Request{
+				TicketID:  "T-BANGLISH-DUP",
+				Complaint: "Biller BILLER-TITAS e double deduct hoise. Amount was 1100 BDT. Help please.",
+				Language:  "mixed",
+				TransactionHistory: []model.Transaction{
+					{TransactionID: "TXN-DUP-BNGL-1", Timestamp: "2026-04-14T10:00:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(1100), Counterparty: "BILLER-TITAS", Status: model.StatusCompleted},
+					{TransactionID: "TXN-DUP-BNGL-2", Timestamp: "2026-04-14T10:01:00Z", Type: model.TxPayment, Amount: model.FlexibleFloat(1100), Counterparty: "BILLER-TITAS", Status: model.StatusCompleted},
+				},
+			},
+			wantTx: "TXN-DUP-BNGL-2", wantCase: model.CaseDuplicatePayment, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityHigh, wantDept: model.DepartmentPaymentsOps, wantReview: true,
+		},
+		{
+			name: "bangla merchant settlement pending",
+			req: model.Request{
+				TicketID:  "T-BN-SETTLEMENT",
+				Complaint: "আমি মার্চেন্ট বলছি। গতকালের 25000 টাকার সেটেলমেন্ট এখনো আটকে আছে। অ্যাকাউন্ট সেটেল হয়নি।",
+				Language:  "bn",
+				UserType:  "merchant",
+				Channel:   "merchant_portal",
+				TransactionHistory: []model.Transaction{{
+					TransactionID: "TXN-BN-SETTLE",
+					Timestamp:     "2026-04-14T10:00:00Z",
+					Type:          model.TxSettlement,
+					Amount:        model.FlexibleFloat(25000),
+					Counterparty:  "MERCHANT-SELF",
+					Status:        model.StatusPending,
+				}},
+			},
+			wantTx: "TXN-BN-SETTLE", wantCase: model.CaseMerchantSettlementDelay, wantVerdict: model.EvidenceConsistent, wantSeverity: model.SeverityMedium, wantDept: model.DepartmentMerchantOperations, wantReview: false,
+		},
+		{
+			name: "banglish phishing prize link",
+			req: model.Request{
+				TicketID:  "T-BANGLISH-PHISH",
+				Complaint: "Bkash officer bole call dise, prize pete link click korte bolse and OTP chaiche",
+				Language:  "mixed",
+			},
+			wantTx: "", wantCase: model.CasePhishingSocialEngineering, wantVerdict: model.EvidenceInsufficientData, wantSeverity: model.SeverityCritical, wantDept: model.DepartmentFraudRisk, wantReview: true,
+		},
 	}
 
 	for _, tc := range tests {

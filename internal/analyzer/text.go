@@ -22,6 +22,13 @@ func normalize(s string) string {
 		"taka/", " taka ",
 		"tk/", " tk ",
 		"bdt/", " bdt ",
+		"টাকার", " টাকা ",
+		"ফেইলড", " ফেইল ",
+		"ফেলড", " ফেল ",
+		"নাম্বারে", " নাম্বার ",
+		"নম্বরে", " নম্বর ",
+		"ক্যাশ-ইন", " ক্যাশ ইন ",
+		"ক্যাশ-আউট", " ক্যাশ আউট ",
 	).Replace(s)
 	s = stripAdversarialPhrases(s)
 	return strings.Join(strings.Fields(s), " ")
