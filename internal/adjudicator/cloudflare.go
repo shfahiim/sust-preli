@@ -92,7 +92,7 @@ type Cloudflare struct {
 
 func ConfigFromEnv() Config {
 	return Config{
-		Enabled:       strings.EqualFold(os.Getenv("LLM_ENABLED"), "true"),
+		Enabled:       !strings.EqualFold(os.Getenv("LLM_ENABLED"), "false"),
 		AccountID:     os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 		APIToken:      os.Getenv("CLOUDFLARE_API_TOKEN"),
 		Model:         envString("LLM_MODEL", "openai/gpt-5-nano"),
