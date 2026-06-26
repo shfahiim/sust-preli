@@ -88,7 +88,7 @@ jobs:
           cp '$RELEASE_DIR/queuestorm-investigator.service' '/etc/systemd/system/$SERVICE_NAME.service'
           cat > '$DEPLOY_DIR/shared/env' <<ENVEOF
           PORT=8000
-          LLM_ENABLED=${LLM_ENABLED:-false}
+          LLM_ENABLED=false
           CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID:-}
           CLOUDFLARE_API_TOKEN=${CLOUDFLARE_API_TOKEN:-}
           LLM_MODEL=${LLM_MODEL:-@cf/qwen/qwen3-30b-a3b-fp8}
